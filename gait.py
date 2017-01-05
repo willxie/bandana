@@ -76,6 +76,13 @@ def main():
 
     print(mu_mean)
 
+    # Resegment the data
+    Z = []                      # list of lists
+    even_indices = range(0, len(mu) - 1, 2)
+    for i in even_indices:
+        Z_i = z[mu[i-1] : mu[i+1]]
+        Z.append(Z_i)
+
     # Plot!
     plt.plot(range(time_range), z[:time_range])
 
