@@ -3,7 +3,8 @@ import matplotlib
 matplotlib.use("TkAgg")
 
 import matplotlib.pyplot as plt
-from scipy.signal import argrelextrema
+from scipy.signal import argrelextrema, resample
+
 
 
 import csv
@@ -44,8 +45,6 @@ def main():
     # a is indexed by different values of k
     a = [ auto_corr(z, k) for k in range(1, len(z) - 1) ]
 
-    print(a)
-
     zeta = argrelextrema(np.array(a), np.greater)
 
     # output for zeta is a 1D tuple, de-tuple zeta
@@ -77,18 +76,33 @@ def main():
     print(mu_mean)
 
     # Resegment the data
+    rho = 40                    # Number of samples resampled in each gait cycle
     Z = []                      # list of lists
-    even_indices = range(0, len(mu) - 1, 2)
+    even_indices = list(range(1, len(mu) - 1, 2))
+    print(even_indices)
     for i in even_indices:
         Z_i = z[mu[i-1] : mu[i+1]]
-        Z.append(Z_i)
+        # Resample
+        Z_i_resampled = resample(Z_i, rho)
+        Z.append(Z_i_resampled)
+
+
+
 
     # Plot!
+    plt.subplot(211)
     plt.plot(range(time_range), z[:time_range])
 
     for mu_i in mu:
         if mu_i < time_range:
             plt.axvline(x=mu_i, color='r')
+
+    plt.subplot(212)
+    temp = [ z_i for Z_i in Z for z_i in Z_i ]
+    time_range_resampled = int(np.ceil(time_range * rho / sample_rate / 2))
+    plt.plot(range(time_range_resampled), temp[:time_range_resampled])
+
+    print(time_range_resampled)
 
     plt.savefig('myfilename.png')
 
