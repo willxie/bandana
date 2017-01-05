@@ -40,9 +40,6 @@ def main():
 
     z = [ tup[2] for tup in accel ]
     time_range = 300
-    plt.plot(range(time_range), z[:time_range])
-
-    plt.savefig('myfilename.png')
 
     # a is indexed by different values of k
     a = [ auto_corr(z, k) for k in range(1, len(z) - 1) ]
@@ -57,9 +54,36 @@ def main():
 
     print(zeta)
 
-    delta_mean = np.ceil(np.sum(np.subtract(zeta[1:], zeta[:-1])) / (len(zeta) - 1))
+    delta_mean = int(np.ceil(np.sum(np.subtract(zeta[1:], zeta[:-1])) / (len(zeta) - 1)))
 
     print(delta_mean)
+
+    tau = 10 # Parameter for deviation for each gait half cycle
+
+    mu = []
+
+    for zeta_i in zeta:
+        # Index window for z to find each local minum
+        z_min_window_indices = range(max(zeta_i - tau, 0), min(zeta_i + delta_mean + tau, len(z) - 1))
+        z_min_window = [ z[i] for i in z_min_window_indices ]
+
+        mu_i = z_min_window_indices[np.argmin(z_min_window)] # get back the indices of z
+        mu.append(mu_i)
+
+    print(mu)
+
+    mu_mean = int(np.ceil(np.sum(np.subtract(mu[1:], mu[:-1])) / (len(mu) - 1)))
+
+    print(mu_mean)
+
+    # Plot!
+    plt.plot(range(time_range), z[:time_range])
+
+    for mu_i in mu:
+        if mu_i < time_range:
+            plt.axvline(x=mu_i, color='r')
+
+    plt.savefig('myfilename.png')
 
     print("Done")
 
