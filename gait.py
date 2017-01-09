@@ -40,7 +40,19 @@ def main():
     # TODO
 
     z = [ tup[2] for tup in accel ]
+    # z = z[:-skip_seconds * sample_rate]
     time_range = 300
+
+    # time_range = 100
+    # plt.plot(z[180:180+time_range])
+    # plt.show()
+
+    # plt.plot(z[150:150+time_range])
+    # plt.show()
+
+    # plt.plot(z[300:300+time_range])
+    # plt.show()
+
 
     # a is indexed by different values of k
     a = [ auto_corr(z, k) for k in range(1, len(z) - 1) ]
@@ -87,7 +99,41 @@ def main():
         Z.append(Z_i_resampled)
 
 
+    # BANDANA
+    # Quantization
+    # Average of each sample over all gait cycles
+    A = [ sum(z_i_list) / rho for z_i_list in zip(*Z) ]
+    assert(len(A) == rho)
 
+    # plt.plot(Z)
+    # plt.show()
+
+    # plt.plot(A)
+    # plt.show()
+
+    # Extract fingerprint
+    b = 4                       # Number of bits for each gait cycle
+    delta = []
+    for Z_i in Z:
+        for Z_chunk, A_chunk in chunks(Z_i, A, b):
+            delta_i = sum(A_chunk) - sum(Z_chunk)
+            delta.append(delta_i)
+
+    assert(len(delta) == len(Z) * b)
+
+    f = [ 1 if delta_i > 0 else 0 for delta_i in delta ]
+
+    assert(len(delta) == len(f))
+
+    print(delta)
+    print(f)
+    print(sum(delta))
+
+    # Sort f based on reliability (descending order from most reliable)
+    delta_ordered, f_ordered = zip(*[ p for p in sorted(zip(delta, f), key=lambda pair: abs(pair[0]), reverse=True) ])
+
+    print(delta_ordered)
+    print(f_ordered)
 
     # Plot!
     plt.subplot(211)
@@ -102,11 +148,24 @@ def main():
     time_range_resampled = int(np.ceil(time_range * rho / sample_rate / 2))
     plt.plot(range(time_range_resampled), temp[:time_range_resampled])
 
-    print(time_range_resampled)
+    total = 0
+    for Z_i in Z:
+        plt.axvline(x=total, color='r')
+        total += len(Z_i)
+        if total > time_range_resampled:
+            break
 
     plt.savefig('myfilename.png')
 
     print("Done")
+
+# Chunk Z and A equally
+def chunks(Z, A, n):
+    assert(len(Z) == len(A))
+    chunk_size = len(Z) // n
+    print(chunk_size)
+    for i in range(0, len(Z), chunk_size):
+        yield Z[i:i+chunk_size], A[i:i+chunk_size]
 
 def auto_corr(z, k):
     sigma = np.var(z)
