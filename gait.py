@@ -3,20 +3,24 @@ import numpy as np
 import matplotlib
 matplotlib.use("TkAgg")
 
+from scipy import signal
 import matplotlib.pyplot as plt
 from scipy.signal import argrelextrema, resample
 from madgwick.madgwickahrs import MadgwickAHRS
 from madgwick.madgwickahrs import Quaternion
 from trans import rotation_matrix
+from quat import Quat
 import csv
 
-input_file = "short_walk.csv" # At 50 Hz
+input_file = "long_walk.csv" # At 50 Hz
 skip_seconds = 1
 sample_rate = 50
 
 tau = 10                    # Parameter for deviation for each gait cycle
 rho = 40                    # Number of samples resampled in each gait cycle
 b = 4                       # Number of bits for each gait cycle
+
+time_range = 300                # Time duration for graph display
 
 def main():
     # Each entry is (x, y, z) tuple
@@ -37,7 +41,8 @@ def main():
             if row[0]:
                 # Convert all data to floats
                 rot.append((float(row[4]), float(row[5]), float(row[6])))
-                accel.append((float(row[7]), float(row[8]), float(row[9])))
+                # accel.append((float(row[7]), float(row[8]), float(row[9]))) # Gravity only
+                accel.append((float(row[7])+float(row[10]), float(row[8])+float(row[11]), float(row[9])+float(row[12])))
                 magn.append((float(row[13]), float(row[14]), float(row[15])))
 
     # Madgwick normalization
@@ -48,12 +53,16 @@ def main():
     roll = []
     pitch = []
     yaw = []
-    mw = MadgwickAHRS(sampleperiod=1/sample_rate, quaternion=Quaternion(1, 0, 0, 0), beta=0.2)
+    transforms = []
+    mw = MadgwickAHRS(sampleperiod=1/sample_rate, quaternion=Quaternion(1, 0, 0, 0), beta=0.02)
     for rot_tup, accel_tup, magn_tup in zip(rot, accel, magn):
-        # mw.update_imu(rot_tup, accel_tup)
-        mw.update(rot_tup, accel_tup, magn_tup)
+        mw.update_imu(rot_tup, accel_tup)
+        # mw.update(rot_tup, accel_tup, magn_tup)
         roll_i, pitch_i, yaw_i = mw.quaternion.to_euler123()
         rad_i, x_i, y_i, z_i = mw.quaternion.to_angle_axis()
+        quat = Quat(list(mw.quaternion.q))
+        transforms.append(quat.transform)
+
         e.append((x_i, y_i, z_i))
         rad.append(rad_i)
         roll.append(roll_i)
@@ -61,19 +70,10 @@ def main():
         yaw.append(yaw_i)
         # print("{}\t{}\t{}".format(roll_i, pitch_i, yaw_i))
 
-
-    y_orig = [ tup[1] for tup in accel ]
-    # z = z[:-skip_seconds * sample_rate]
-    time_range = 300
-
-    # time_range = 100
-    # plt.plot(z_orig[180:180+time_range])
-    # plt.show()
-
     # for accel_i, r, p, y in zip(accel, roll, pitch, yaw):
     accel_rect = []
     z = []
-    for accel_i, rad_i, e_i in zip(accel, rad, e):
+    for accel_i, rad_i, e_i, trans in zip(accel, rad, e, transforms):
         accel_i_vec = (np.array(accel_i))
         print("orig: {}".format(accel_i_vec))
         # accel_i_rect = R_x(r).dot(R_y(p)).dot(R_z(y)).dot(accel_i_vec)
@@ -87,8 +87,10 @@ def main():
         # print(R)
         # print(_R)
 
-        # accel_i_rect = np.linalg.inv(R).dot(accel_i_vec)
-        accel_i_rect = R.dot(accel_i_vec)
+        accel_i_rect = np.linalg.inv(R).dot(accel_i_vec)
+        # accel_i_rect = R.dot(accel_i_vec)
+        accel_i_rect = np.linalg.inv(trans).dot(accel_i_vec)
+        # accel_i_rect = trans.dot(accel_i_vec)
 
         # accel_i_rect = np.linalg.inv(R_rad(rad_i, e_i)).dot(accel_i_vec)
         # accel_i_rect = R_rad(rad_i, e_i).dot(accel_i_vec)
@@ -101,16 +103,43 @@ def main():
     # plt.plot(temp)
     # plt.show()
 
-    plt.subplot(211)
-    plt.plot(accel[:3000])
+    # plt.subplot(211)
+    # plt.plot(accel[:1000])
 
-    plt.subplot(212)
-    plt.plot(accel_rect[:3000])
+    # plt.subplot(212)
+    # plt.plot(accel_rect[:1000])
     # plt.show()
 
+    # Bandpass filter
+    cutoff = [0.5, 5]                 # Cutoff frequency in Hz
+    Wn = [cutoff[0]/(sample_rate/2), cutoff[1]/(sample_rate/2)]
+    filter_b, filter_a = signal.cheby2(20, 40, Wn[1], btype='lowpass')
+    # filter_b, filter_a = signal.butter(4, Wn, btype='bandpass')
+    # print(filter_b)
+    # print(filter_a)
+    # Filter vis
+    w, h = signal.freqs(filter_b, filter_a)
+    plt.semilogx(w, 20 * np.log10(abs(h)))
+    plt.title('Chebyshev Type II frequency response (rs=40)')
+    plt.xlabel('Frequency [radians / second]')
+    plt.ylabel('Amplitude [dB]')
+    plt.margins(0, 0.1)
+    plt.grid(which='both', axis='both')
+    plt.axvline(100, color='green') # cutoff frequency
+    plt.axhline(-40, color='green') # rs
+    plt.show()
+
     # Pick final channel as input
-    z = [ accel_i[2] for accel_i in accel ]
-    z = [ accel_i[2] for accel_i in accel_rect ]
+    z = [ accel_i[1] for accel_i in accel ]
+    # z = [ accel_i[2] for accel_i in accel_rect ]
+    z_filtered = signal.filtfilt(filter_b, filter_a, z)
+
+    # plt.plot(list(zip(z, z_filtered))[:time_range*5])
+    # plt.plot(z_filtered[:time_range*3])
+    # plt.show()
+
+    z = z_filtered
+
 
     # a is indexed by different values of k
     a = [ auto_corr(z, k) for k in range(1, len(z) - 1) ]
@@ -129,25 +158,28 @@ def main():
     zeta_filtered = zeta[abs(zeta - np.mean(zeta)) < m * np.std(zeta)]
     delta_mean = int(np.ceil(np.sum(np.subtract(zeta_filtered[1:], zeta_filtered[:-1])) / (len(zeta) - 1)))
 
+    print("difference zeta")
     print(np.subtract(zeta[1:], zeta[:-1]))
     print("delta_mean:")
     print(delta_mean)
 
     mu = []
 
+    seen = set()
     for zeta_i in zeta:
         # Index window for z to find each local minum
         z_min_window_indices = range(max(zeta_i - tau, 0), min(zeta_i + delta_mean + tau, len(z) - 1))
         z_min_window = [ z[i] for i in z_min_window_indices ]
 
         mu_i = z_min_window_indices[np.argmin(z_min_window)] # get back the indices of z
-        mu.append(mu_i)
+        if mu_i not in seen:
+            mu.append(mu_i)
+            seen.add(mu_i)
 
     print("mu:")
     print(mu)
 
     mu_mean = int(np.ceil(np.sum(np.subtract(mu[1:], mu[:-1])) / (len(mu) - 1)))
-
     print("mu_mean:")
     print(mu_mean)
 
@@ -158,12 +190,13 @@ def main():
         Z_i = z[mu[i-1] : mu[i+1]]
         # Resample
         Z_i_resampled = resample(Z_i, rho)
+        assert(len(Z_i_resampled) == rho)
         Z.append(Z_i_resampled)
 
     # BANDANA
     # Quantization
     # Average of each sample over all gait cycles
-    A = [ sum(z_i_list) / rho for z_i_list in zip(*Z) ]
+    A = [ sum(z_i_list) / len(z_i_list) for z_i_list in zip(*Z) ]
     assert(len(A) == rho)
 
     # Extract fingerprint
@@ -243,49 +276,6 @@ def R_rad(r, e):
         [e[1]*e[0]*(1-np.cos(r))+e[2]*np.sin(r), np.cos(r)+e[1]**2*(1-np.cos(r)), e[1]*e[2]*(1-np.cos(r)-e[0]*np.sin(r))],
         [e[2]*e[0]*(1-np.cos(r))-e[1]*np.sin(r), e[2]*e[1]*(1-np.cos(r))+e[0]*np.sin(r), np.cos(r)+e[2]**2*(1-np.cos(r))]
     ])
-
-def rotation_matrix2(angle, direction, point=None):
-    """Return matrix to rotate about axis defined by point and direction.
-
-    >>> R = rotation_matrix(math.pi/2, [0, 0, 1], [1, 0, 0])
-    >>> numpy.allclose(numpy.dot(R, [0, 0, 0, 1]), [1, -1, 0, 1])
-    True
-    >>> angle = (random.random() - 0.5) * (2*math.pi)
-    >>> direc = numpy.random.random(3) - 0.5
-    >>> point = numpy.random.random(3) - 0.5
-    >>> R0 = rotation_matrix(angle, direc, point)
-    >>> R1 = rotation_matrix(angle-2*math.pi, direc, point)
-    >>> is_same_transform(R0, R1)
-    True
-    >>> R0 = rotation_matrix(angle, direc, point)
-    >>> R1 = rotation_matrix(-angle, -direc, point)
-    >>> is_same_transform(R0, R1)
-    True
-    >>> I = numpy.identity(4, numpy.float64)
-    >>> numpy.allclose(I, rotation_matrix(math.pi*2, direc))
-    True
-    >>> numpy.allclose(2, numpy.trace(rotation_matrix(math.pi/2,
-    ...                                               direc, point)))
-    True
-
-    """
-    sina = math.sin(angle)
-    cosa = math.cos(angle)
-    direction = unit_vector(direction[:3])
-    # rotation matrix around unit vector
-    R = numpy.diag([cosa, cosa, cosa])
-    R += numpy.outer(direction, direction) * (1.0 - cosa)
-    direction *= sina
-    R += numpy.array([[ 0.0,         -direction[2],  direction[1]],
-                      [ direction[2], 0.0,          -direction[0]],
-                      [-direction[1], direction[0],  0.0]])
-    M = numpy.identity(4)
-    M[:3, :3] = R
-    if point is not None:
-        # rotation not around origin
-        point = numpy.array(point[:3], dtype=numpy.float64, copy=False)
-        M[:3, 3] = point - numpy.dot(R, point)
-    return M
 
 # Chunk Z and A equally
 def chunks(Z, A, n):
