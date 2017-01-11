@@ -12,9 +12,6 @@ from trans import rotation_matrix
 from quat import Quat
 import csv
 
-input_file = "long_walk.csv" # At 50 Hz
-skip_seconds = 1
-sample_rate = 50
 
 tau = 10                    # Parameter for deviation for each gait cycle
 rho = 40                    # Number of samples resampled in each gait cycle
@@ -23,27 +20,46 @@ b = 4                       # Number of bits for each gait cycle
 time_range = 300                # Time duration for graph display
 
 def main():
+    input_file = "test.csv" # At 50 Hz
+    skip_seconds = 1
+    sample_rate = 50
+
     # Each entry is (x, y, z) tuple
     accel = []
     rot   = []
     magn  = []
+    timestamp = []
 
     with open(input_file, 'r') as csvfile:
+
         data_reader = csv.reader(csvfile)
 
         row_count = 0
         for row in data_reader:
-            # Skip first two seconds of data
-            if row_count < (skip_seconds * sample_rate):
+            # Skip the headers
+            if row_count < 5:
                 row_count += 1
                 continue
 
             if row[0]:
                 # Convert all data to floats
-                rot.append((float(row[4]), float(row[5]), float(row[6])))
+                # My data
                 # accel.append((float(row[7]), float(row[8]), float(row[9]))) # Gravity only
-                accel.append((float(row[7])+float(row[10]), float(row[8])+float(row[11]), float(row[9])+float(row[12])))
-                magn.append((float(row[13]), float(row[14]), float(row[15])))
+                # accel.append((float(row[7])+float(row[10]), float(row[8])+float(row[11]), float(row[9])+float(row[12])))
+                # rot.append((float(row[4]), float(row[5]), float(row[6])))
+                # magn.append((float(row[13]), float(row[14]), float(row[15])))
+
+                # Test data
+                accel.append((float(row[1]), float(row[2]), float(row[3]))) # Gravity only
+                timestamp.append(float(row[0]))
+
+    # Normalize the timestamps
+    time_offset = min(timestamp)
+    timestamp = [ time - time_offset for time  in timestamp ]
+    # Find sample rate (timestamp in us)
+    sample_rate = int(np.ceil(1000000 / (timestamp[1] - timestamp[0])))
+    print("sample_rate:")
+    print(sample_rate)
 
     # Madgwick normalization
     # accel = [(1,0,0) for i in range(len(accel))]
@@ -75,7 +91,7 @@ def main():
     z = []
     for accel_i, rad_i, e_i, trans in zip(accel, rad, e, transforms):
         accel_i_vec = (np.array(accel_i))
-        print("orig: {}".format(accel_i_vec))
+        # print("orig: {}".format(accel_i_vec))
         # accel_i_rect = R_x(r).dot(R_y(p)).dot(R_z(y)).dot(accel_i_vec)
         # accel_i_rect = np.linalg.inv(R_x(r).dot(R_y(p)).dot(R_z(y))).dot(accel_i_vec)
         # accel_i_rect = R_z(y).dot(R_y(p)).dot(R_x(r)).dot(accel_i_vec)
@@ -95,7 +111,7 @@ def main():
         # accel_i_rect = np.linalg.inv(R_rad(rad_i, e_i)).dot(accel_i_vec)
         # accel_i_rect = R_rad(rad_i, e_i).dot(accel_i_vec)
 
-        print("rect: {}".format(accel_i_rect))
+        # print("rect: {}".format(accel_i_rect))
         accel_rect.append(accel_i_rect)
         z.append(accel_i_rect[2])
 
@@ -114,33 +130,37 @@ def main():
     cutoff = [0.5, 5]                 # Cutoff frequency in Hz
     Wn = [cutoff[0]/(sample_rate/2), cutoff[1]/(sample_rate/2)]
     filter_b, filter_a = signal.cheby2(20, 40, Wn[1], btype='lowpass')
-    # filter_b, filter_a = signal.butter(4, Wn, btype='bandpass')
+    filter_b, filter_a = signal.butter(4, Wn, btype='bandpass')
     # print(filter_b)
     # print(filter_a)
     # Filter vis
-    w, h = signal.freqs(filter_b, filter_a)
-    plt.semilogx(w, 20 * np.log10(abs(h)))
-    plt.title('Chebyshev Type II frequency response (rs=40)')
-    plt.xlabel('Frequency [radians / second]')
-    plt.ylabel('Amplitude [dB]')
-    plt.margins(0, 0.1)
-    plt.grid(which='both', axis='both')
-    plt.axvline(100, color='green') # cutoff frequency
-    plt.axhline(-40, color='green') # rs
-    plt.show()
+    # w, h = signal.freqs(filter_b, filter_a)
+    # plt.semilogx(w, 20 * np.log10(abs(h)))
+    # plt.title('Chebyshev Type II frequency response (rs=40)')
+    # plt.xlabel('Frequency [radians / second]')
+    # plt.ylabel('Amplitude [dB]')
+    # plt.margins(0, 0.1)
+    # plt.grid(which='both', axis='both')
+    # plt.axvline(100, color='green') # cutoff frequency
+    # plt.axhline(-40, color='green') # rs
+    # plt.show()
 
-    # Pick final channel as input
-    z = [ accel_i[1] for accel_i in accel ]
-    # z = [ accel_i[2] for accel_i in accel_rect ]
-    z_filtered = signal.filtfilt(filter_b, filter_a, z)
+    # z_filtered = signal.filtfilt(filter_b, filter_a, z)
 
     # plt.plot(list(zip(z, z_filtered))[:time_range*5])
     # plt.plot(z_filtered[:time_range*3])
     # plt.show()
 
-    z = z_filtered
+    # Pick final channel as input
+    z = [ accel_i[1] for accel_i in accel ] # Pick Y axis as input
+    # z = [ accel_i[2] for accel_i in accel_rect ]
+    # z = z_filtered
 
+    z = z[400:1100]
+    # plt.plot(z)
+    # plt.show()
 
+    ####################################################################################################
     # a is indexed by different values of k
     a = [ auto_corr(z, k) for k in range(1, len(z) - 1) ]
 
@@ -243,7 +263,7 @@ def main():
         if total > time_range_resampled:
             break
 
-    plt.savefig('myfilename.png')
+    plt.savefig('gait_cycle_plot.png')
 
     print("Done")
 
