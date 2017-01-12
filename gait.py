@@ -22,7 +22,7 @@ time_range = 300                # Time duration for graph display
 def main():
     input_file = "test.csv" # At 50 Hz
     skip_seconds = 1
-    sample_rate = 50
+    sample_rate = 100
 
     # Each entry is (x, y, z) tuple
     accel = []
@@ -55,9 +55,22 @@ def main():
 
     # Normalize the timestamps
     time_offset = min(timestamp)
-    timestamp = [ time - time_offset for time  in timestamp ]
+    timestamp = [ (time - time_offset) / 1000000 for time  in timestamp ]
+
+    # Resampling and correct timstamp sampling drift
+    print(max(timestamp))
+    t = list(np.arange(0, max(timestamp), 1/sample_rate))
+    accel_x, accel_y, accel_z = list(zip(*accel))
+    accel_x_new = np.interp(t, timestamp, accel_x)
+    accel_y_new = np.interp(t, timestamp, accel_y)
+    accel_z_new = np.interp(t, timestamp, accel_z)
+
+    # plt.plot(accel_x)
+    # plt.plot(accel_x_new)
+    # plt.show()
+
     # Find sample rate (timestamp in us)
-    sample_rate = int(np.ceil(1000000 / (timestamp[1] - timestamp[0])))
+    # sample_rate = int(np.floor(1000000 / (timestamp[1] - timestamp[0])))
     print("sample_rate:")
     print(sample_rate)
 
@@ -113,7 +126,6 @@ def main():
 
         # print("rect: {}".format(accel_i_rect))
         accel_rect.append(accel_i_rect)
-        z.append(accel_i_rect[2])
 
     # temp = list(zip(roll, pitch, yaw))
     # plt.plot(temp)
@@ -126,13 +138,26 @@ def main():
     # plt.plot(accel_rect[:1000])
     # plt.show()
 
+    # Pick final channel as input
+    # z = [ accel_i[1] for accel_i in accel ] # Pick Y axis as input
+    # z = [ accel_i[2] for accel_i in accel_rect ]
+
+    z = list(accel_y_new)
+
+    # Manually filter out the beginning non-step movements
+    # z = z[400:1100]
+    z = z[400:1200]
+
+    # plt.plot(z)
+    # plt.show()
+
     # Bandpass filter
-    cutoff = [0.5, 5]                 # Cutoff frequency in Hz
+    cutoff = [0.5, 10]                 # Cutoff frequency in Hz
     Wn = [cutoff[0]/(sample_rate/2), cutoff[1]/(sample_rate/2)]
-    filter_b, filter_a = signal.cheby2(20, 40, Wn[1], btype='lowpass')
-    filter_b, filter_a = signal.butter(4, Wn, btype='bandpass')
-    # print(filter_b)
-    # print(filter_a)
+    filter_b, filter_a = signal.cheby2(7, 40, Wn[1], btype='lowpass')
+    filter_b, filter_a = signal.cheby2(5, 40, Wn, btype='bandpass')
+    # filter_b, filter_a = signal.butter(5, Wn, btype='band', analog=False)
+
     # Filter vis
     # w, h = signal.freqs(filter_b, filter_a)
     # plt.semilogx(w, 20 * np.log10(abs(h)))
@@ -145,18 +170,19 @@ def main():
     # plt.axhline(-40, color='green') # rs
     # plt.show()
 
-    # z_filtered = signal.filtfilt(filter_b, filter_a, z)
-
     # plt.plot(list(zip(z, z_filtered))[:time_range*5])
     # plt.plot(z_filtered[:time_range*3])
     # plt.show()
 
-    # Pick final channel as input
-    z = [ accel_i[1] for accel_i in accel ] # Pick Y axis as input
-    # z = [ accel_i[2] for accel_i in accel_rect ]
-    # z = z_filtered
+    z_filtered = signal.filtfilt(filter_b, filter_a, z)
 
-    z = z[400:1100]
+
+    # plt.plot(list(zip(z, z_filtered)))
+    # plt.show()
+
+    z_orig = z
+    z = z_filtered
+
     # plt.plot(z)
     # plt.show()
 
@@ -196,7 +222,7 @@ def main():
             mu.append(mu_i)
             seen.add(mu_i)
 
-    print("mu:")
+    print("mu (len={}):".format(len(mu)))
     print(mu)
 
     mu_mean = int(np.ceil(np.sum(np.subtract(mu[1:], mu[:-1])) / (len(mu) - 1)))
@@ -205,8 +231,8 @@ def main():
 
     # Resegment the data
     Z = []                      # list of lists
-    even_indices = list(range(1, len(mu) - 1, 2))
-    for i in even_indices:
+    oddindices = list(range(1, len(mu) - 1, 2))
+    for i in oddindices:
         Z_i = z[mu[i-1] : mu[i+1]]
         # Resample
         Z_i_resampled = resample(Z_i, rho)
@@ -244,26 +270,35 @@ def main():
     # print(f_ordered)
 
     # Plot!
-    plt.subplot(211)
-    plt.plot(range(time_range), z[:time_range])
+    plt.plot(z_orig)
+    plt.plot(z)
+    even_indices= list(range(0, len(mu) - 1, 2))
+    for index in even_indices:
+        plt.axvline(x=mu[index], color='r')
 
-    for mu_i in mu:
-        if mu_i < time_range:
-            plt.axvline(x=mu_i, color='r')
+    print("{} gait cycles".format(len(Z)))
+    plt.show()
 
-    plt.subplot(212)
-    temp = [ z_i for Z_i in Z for z_i in Z_i ]
-    time_range_resampled = int(np.ceil(time_range * rho / sample_rate / 2))
-    plt.plot(range(time_range_resampled), temp[:time_range_resampled])
+    # plt.subplot(211)
+    # plt.plot(range(time_range), z[:time_range])
 
-    total = 0
-    for Z_i in Z:
-        plt.axvline(x=total, color='r')
-        total += len(Z_i)
-        if total > time_range_resampled:
-            break
+    # for mu_i in mu:
+    #     if mu_i < time_range:
+    #         plt.axvline(x=mu_i, color='r')
 
-    plt.savefig('gait_cycle_plot.png')
+    # plt.subplot(212)
+    # temp = [ z_i for Z_i in Z for z_i in Z_i ]
+    # time_range_resampled = int(np.ceil(time_range * rho / sample_rate / 2))
+    # plt.plot(range(time_range_resampled), temp[:time_range_resampled])
+
+    # total = 0
+    # for Z_i in Z:
+    #     plt.axvline(x=total, color='r')
+    #     total += len(Z_i)
+    #     if total > time_range_resampled:
+    #         break
+
+    # plt.savefig('cycle_plot.png')
 
     print("Done")
 
