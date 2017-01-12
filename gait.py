@@ -332,6 +332,18 @@ def R_rad(r, e):
         [e[2]*e[0]*(1-np.cos(r))-e[1]*np.sin(r), e[2]*e[1]*(1-np.cos(r))+e[0]*np.sin(r), np.cos(r)+e[2]**2*(1-np.cos(r))]
     ])
 
+def plot_spectrum(y,f_s):
+    # Number of sample points
+    N = len(y)
+    # sample spacing
+    T = 1.0 / f_s
+    x = np.linspace(0.0, N*T, N)
+    yf = sp_fft(y)
+    freq_vec = np.linspace(0.0, 1.0/(2.0*T), N/2)
+    Y_f=2.0/N * np.abs(yf[0:N/2])
+    plt.plot(freq_vec, Y_f)
+    return Y_f,freq_vec
+
 # Chunk Z and A equally
 def chunks(Z, A, n):
     assert(len(Z) == len(A))
