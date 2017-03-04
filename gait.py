@@ -12,7 +12,6 @@ from trans import rotation_matrix
 from quat import Quat
 import csv
 
-
 tau = 10                    # Parameter for deviation for each gait cycle
 rho = 40                    # Number of samples resampled in each gait cycle
 b = 4                       # Number of bits for each gait cycle
@@ -20,7 +19,7 @@ b = 4                       # Number of bits for each gait cycle
 time_range = 300                # Time duration for graph display
 
 def main():
-    input_file = "test.csv" # At 50 Hz
+    input_file = "short_walk.csv" # At 50 Hz
     skip_seconds = 1
     sample_rate = 100
 
@@ -31,7 +30,6 @@ def main():
     timestamp = []
 
     with open(input_file, 'r') as csvfile:
-
         data_reader = csv.reader(csvfile)
 
         row_count = 0
@@ -45,34 +43,50 @@ def main():
                 # Convert all data to floats
                 # My data
                 # accel.append((float(row[7]), float(row[8]), float(row[9]))) # Gravity only
-                # accel.append((float(row[7])+float(row[10]), float(row[8])+float(row[11]), float(row[9])+float(row[12])))
-                # rot.append((float(row[4]), float(row[5]), float(row[6])))
-                # magn.append((float(row[13]), float(row[14]), float(row[15])))
+                accel.append((float(row[7])+float(row[10]), float(row[8])+float(row[11]), float(row[9])+float(row[12])))
+                rot.append((float(row[4]), float(row[5]), float(row[6])))
+                magn.append((float(row[13]), float(row[14]), float(row[15])))
 
                 # Test data
-                accel.append((float(row[1]), float(row[2]), float(row[3]))) # Gravity only
+                # accel.append((float(row[1]), float(row[2]), float(row[3]))) # Gravity only
                 timestamp.append(float(row[0]))
 
     # Normalize the timestamps
     time_offset = min(timestamp)
-    timestamp = [ (time - time_offset) / 1000000 for time  in timestamp ]
+    timestamp = [ (time - time_offset) for time in timestamp ] # To seconds
+
+    print("sample_rate:")
+    print(sample_rate)
 
     # Resampling and correct timstamp sampling drift
+    print("signal duration:")
     print(max(timestamp))
-    t = list(np.arange(0, max(timestamp), 1/sample_rate))
+    t = list(np.arange(0, max(timestamp), 1.0/sample_rate))
     accel_x, accel_y, accel_z = list(zip(*accel))
     accel_x_new = np.interp(t, timestamp, accel_x)
     accel_y_new = np.interp(t, timestamp, accel_y)
     accel_z_new = np.interp(t, timestamp, accel_z)
 
-    # plt.plot(accel_x)
-    # plt.plot(accel_x_new)
-    # plt.show()
+    accel_resampled = list(zip(accel_x_new, accel_y_new, accel_z_new))
+
+    plt.subplot(311)
+    plt.plot(accel_resampled)
+    plt.subplot(312)
+    accel_mag = [ np.linalg.norm(xyz) for xyz in accel_resampled ]
+    plt.plot(accel_mag)
+    plt.subplot(313)
+    # Windowed magnitude
+    accel_mag_avg = []
+    for i in range(len(accel_mag)):
+        if i > len(accel_mag) - sample_rate:
+            break
+        accel_mag_avg.append(sum(accel_mag[i:(i+sample_rate)]) / sample_rate)
+
+    plt.plot(accel_mag_avg)
+    plt.show()
 
     # Find sample rate (timestamp in us)
     # sample_rate = int(np.floor(1000000 / (timestamp[1] - timestamp[0])))
-    print("sample_rate:")
-    print(sample_rate)
 
     # Madgwick normalization
     # accel = [(1,0,0) for i in range(len(accel))]
@@ -84,7 +98,7 @@ def main():
     yaw = []
     transforms = []
     mw = MadgwickAHRS(sampleperiod=1/sample_rate, quaternion=Quaternion(1, 0, 0, 0), beta=0.02)
-    for rot_tup, accel_tup, magn_tup in zip(rot, accel, magn):
+    for rotro_tup, accel_tup, magn_tup in zip(rot, accel, magn):
         mw.update_imu(rot_tup, accel_tup)
         # mw.update(rot_tup, accel_tup, magn_tup)
         roll_i, pitch_i, yaw_i = mw.quaternion.to_euler123()
